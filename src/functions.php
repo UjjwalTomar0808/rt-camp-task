@@ -8,7 +8,18 @@
  */
 function addTask( string $task_name ): bool {
 	$file  = __DIR__ . '/tasks.txt';
-	// TODO: Implement this function
+	$tasks = getAllTasks();
+	foreach ($tasks as $task) {
+		if (strtolower($task['name']) === strtolower($task_name)) {
+			return false;
+		}
+	}
+	$tasks[] = [
+		'id' => uniqid(),
+		'name' => $task_name,
+		'completed' => false
+	];
+	return file_put_contents($file, json_encode($tasks, JSON_PRETTY_PRINT)) !== false;
 }
 
 /**
@@ -18,7 +29,8 @@ function addTask( string $task_name ): bool {
  */
 function getAllTasks(): array {
 	$file = __DIR__ . '/tasks.txt';
-	// TODO: Implement this function
+	if (!file_exists($file)) return [];
+	return json_decode(file_get_contents($file), true) ?: [];
 }
 
 /**
@@ -30,7 +42,14 @@ function getAllTasks(): array {
  */
 function markTaskAsCompleted( string $task_id, bool $is_completed ): bool {
 	$file  = __DIR__ . '/tasks.txt';
-	// TODO: Implement this function
+	$tasks = getAllTasks();
+	foreach ($tasks as &$task) {
+		if ($task['id'] === $task_id) {
+			$task['completed'] = $is_completed;
+			return file_put_contents($file, json_encode($tasks, JSON_PRETTY_PRINT)) !== false;
+		}
+	}
+	return false;
 }
 
 /**
@@ -41,7 +60,8 @@ function markTaskAsCompleted( string $task_id, bool $is_completed ): bool {
  */
 function deleteTask( string $task_id ): bool {
 	$file  = __DIR__ . '/tasks.txt';
-	// TODO: Implement this function
+	$tasks = array_filter(getAllTasks(), fn($task) => $task['id'] !== $task_id);
+	return file_put_contents($file, json_encode(array_values($tasks), JSON_PRETTY_PRINT)) !== false;
 }
 
 /**
@@ -50,7 +70,7 @@ function deleteTask( string $task_id ): bool {
  * @return string The generated verification code.
  */
 function generateVerificationCode(): string {
-	// TODO: Implement this function
+	return str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -64,7 +84,20 @@ function generateVerificationCode(): string {
  */
 function subscribeEmail( string $email ): bool {
 	$file = __DIR__ . '/pending_subscriptions.txt';
-	// TODO: Implement this function
+	$code = generateVerificationCode();
+	$pending = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
+	$pending[$email] = ['code' => $code];
+	file_put_contents($file, json_encode($pending, JSON_PRETTY_PRINT));
+
+	$link = 'http://' . $_SERVER['HTTP_HOST'] . '/src/verify.php?email=' . urlencode($email) . '&code=' . $code;
+	$subject = 'Verify subscription to Task Planner';
+	$body = "<p>Click the link below to verify your subscription to Task Planner:</p>
+<p><a id=\"verification-link\" href=\"$link\">Verify Subscription</a></p>";
+	$headers = "MIME-Version: 1.0\r\n";
+	$headers .= "Content-type:text/html;charset=UTF-8\r\n";
+	$headers .= "From: no-reply@example.com";
+
+	return mail($email, $subject, $body, $headers);
 }
 
 /**
@@ -77,7 +110,20 @@ function subscribeEmail( string $email ): bool {
 function verifySubscription( string $email, string $code ): bool {
 	$pending_file     = __DIR__ . '/pending_subscriptions.txt';
 	$subscribers_file = __DIR__ . '/subscribers.txt';
-	// TODO: Implement this function
+
+	$pending = file_exists($pending_file) ? json_decode(file_get_contents($pending_file), true) : [];
+	if (!isset($pending[$email]) || $pending[$email]['code'] !== $code) {
+		return false;
+	}
+	unset($pending[$email]);
+	file_put_contents($pending_file, json_encode($pending, JSON_PRETTY_PRINT));
+
+	$subscribers = file_exists($subscribers_file) ? file($subscribers_file, FILE_IGNORE_NEW_LINES) : [];
+	if (!in_array($email, $subscribers)) {
+		$subscribers[] = $email;
+		file_put_contents($subscribers_file, implode("\n", $subscribers) . "\n");
+	}
+	return true;
 }
 
 /**
@@ -88,7 +134,9 @@ function verifySubscription( string $email, string $code ): bool {
  */
 function unsubscribeEmail( string $email ): bool {
 	$subscribers_file = __DIR__ . '/subscribers.txt';
-	// TODO: Implement this function
+	$subscribers = file_exists($subscribers_file) ? file($subscribers_file, FILE_IGNORE_NEW_LINES) : [];
+	$subscribers = array_filter($subscribers, fn($e) => trim($e) !== trim($email));
+	return file_put_contents($subscribers_file, implode("\n", $subscribers) . "\n") !== false;
 }
 
 /**
@@ -97,7 +145,12 @@ function unsubscribeEmail( string $email ): bool {
  */
 function sendTaskReminders(): void {
 	$subscribers_file = __DIR__ . '/subscribers.txt';
-	// TODO: Implement this function
+	$emails = file_exists($subscribers_file) ? file($subscribers_file, FILE_IGNORE_NEW_LINES) : [];
+	$tasks = getAllTasks();
+	$pending = array_filter($tasks, fn($task) => !$task['completed']);
+	foreach ($emails as $email) {
+		sendTaskEmail($email, $pending);
+	}
 }
 
 /**
@@ -109,5 +162,19 @@ function sendTaskReminders(): void {
  */
 function sendTaskEmail( string $email, array $pending_tasks ): bool {
 	$subject = 'Task Planner - Pending Tasks Reminder';
-	// TODO: Implement this function
+	$list = '';
+	foreach ($pending_tasks as $task) {
+		$list .= "<li>" . htmlspecialchars($task['name']) . "</li>";
+	}
+	$unsubscribe_link = 'http://' . $_SERVER['HTTP_HOST'] . '/src/unsubscribe.php?email=' . urlencode($email);
+	$body = "<h2>Pending Tasks Reminder</h2>
+<p>Here are the current pending tasks:</p>
+<ul>$list</ul>
+<p><a id=\"unsubscribe-link\" href=\"$unsubscribe_link\">Unsubscribe from notifications</a></p>";
+
+	$headers = "MIME-Version: 1.0\r\n";
+	$headers .= "Content-type:text/html;charset=UTF-8\r\n";
+	$headers .= "From: no-reply@example.com";
+
+	return mail($email, $subject, $body, $headers);
 }

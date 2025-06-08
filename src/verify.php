@@ -1,8 +1,10 @@
 <?php
 require_once 'functions.php';
 
-// TODO: Implement verification logic.
-
+$success = false;
+if (isset($_GET['email']) && isset($_GET['code'])) {
+	$success = verifySubscription($_GET['email'], $_GET['code']);
+}
 ?>
 
 <!DOCTYPE html>
@@ -11,8 +13,7 @@ require_once 'functions.php';
 	<!-- Implement Header ! -->
 </head>
 <body>
-	<!-- Do not modify the ID of the heading -->
 	<h2 id="verification-heading">Subscription Verification</h2>
-	<!-- Implemention body -->
+	<p><?= $success ? "Subscription verified successfully!" : "Invalid or expired verification link." ?></p>
 </body>
 </html>
