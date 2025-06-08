@@ -8,7 +8,7 @@
  */
 function addTask( string $task_name ): bool {
 	$file  = __DIR__ . '/tasks.txt';
-	$tasks = getAllTasks();
+	$tasks = loadJsonWithComment($file);
 	foreach ($tasks as $task) {
 		if (strtolower($task['name']) === strtolower($task_name)) {
 			return false;
@@ -19,7 +19,7 @@ function addTask( string $task_name ): bool {
 		'name' => $task_name,
 		'completed' => false
 	];
-	return file_put_contents($file, json_encode($tasks, JSON_PRETTY_PRINT)) !== false;
+	return saveJsonWithComment($file, $tasks);
 }
 
 /**
@@ -29,8 +29,7 @@ function addTask( string $task_name ): bool {
  */
 function getAllTasks(): array {
 	$file = __DIR__ . '/tasks.txt';
-	if (!file_exists($file)) return [];
-	return json_decode(file_get_contents($file), true) ?: [];
+	return loadJsonWithComment($file);
 }
 
 /**
@@ -42,11 +41,11 @@ function getAllTasks(): array {
  */
 function markTaskAsCompleted( string $task_id, bool $is_completed ): bool {
 	$file  = __DIR__ . '/tasks.txt';
-	$tasks = getAllTasks();
+	$tasks = loadJsonWithComment($file);
 	foreach ($tasks as &$task) {
 		if ($task['id'] === $task_id) {
 			$task['completed'] = $is_completed;
-			return file_put_contents($file, json_encode($tasks, JSON_PRETTY_PRINT)) !== false;
+			return saveJsonWithComment($file, $tasks);
 		}
 	}
 	return false;
@@ -60,8 +59,9 @@ function markTaskAsCompleted( string $task_id, bool $is_completed ): bool {
  */
 function deleteTask( string $task_id ): bool {
 	$file  = __DIR__ . '/tasks.txt';
-	$tasks = array_filter(getAllTasks(), fn($task) => $task['id'] !== $task_id);
-	return file_put_contents($file, json_encode(array_values($tasks), JSON_PRETTY_PRINT)) !== false;
+	$tasks = loadJsonWithComment($file);
+	$tasks = array_filter($tasks, fn($task) => $task['id'] !== $task_id);
+	return saveJsonWithComment($file, array_values($tasks));
 }
 
 /**
@@ -70,7 +70,7 @@ function deleteTask( string $task_id ): bool {
  * @return string The generated verification code.
  */
 function generateVerificationCode(): string {
-	return str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+	return str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -83,19 +83,19 @@ function generateVerificationCode(): string {
  * @return bool True if verification email sent successfully, false otherwise.
  */
 function subscribeEmail( string $email ): bool {
+	if (!filter_var($email, FILTER_VALIDATE_EMAIL)) return false;
+
 	$file = __DIR__ . '/pending_subscriptions.txt';
 	$code = generateVerificationCode();
-	$pending = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
+	$pending = loadJsonWithComment($file);
 	$pending[$email] = ['code' => $code];
-	file_put_contents($file, json_encode($pending, JSON_PRETTY_PRINT));
+	saveJsonWithComment($file, $pending);
 
 	$link = 'http://' . $_SERVER['HTTP_HOST'] . '/src/verify.php?email=' . urlencode($email) . '&code=' . $code;
 	$subject = 'Verify subscription to Task Planner';
 	$body = "<p>Click the link below to verify your subscription to Task Planner:</p>
-<p><a id=\"verification-link\" href=\"$link\">Verify Subscription</a></p>";
-	$headers = "MIME-Version: 1.0\r\n";
-	$headers .= "Content-type:text/html;charset=UTF-8\r\n";
-	$headers .= "From: no-reply@example.com";
+<p><a id='verification-link' href='$link'>Verify Subscription</a></p>";
+	$headers = "MIME-Version: 1.0\r\nContent-type:text/html;charset=UTF-8\r\nFrom: no-reply@example.com";
 
 	return mail($email, $subject, $body, $headers);
 }
@@ -111,19 +111,16 @@ function verifySubscription( string $email, string $code ): bool {
 	$pending_file     = __DIR__ . '/pending_subscriptions.txt';
 	$subscribers_file = __DIR__ . '/subscribers.txt';
 
-	$pending = file_exists($pending_file) ? json_decode(file_get_contents($pending_file), true) : [];
+	$pending = loadJsonWithComment($pending_file);
 	if (!isset($pending[$email]) || $pending[$email]['code'] !== $code) {
 		return false;
 	}
 	unset($pending[$email]);
-	file_put_contents($pending_file, json_encode($pending, JSON_PRETTY_PRINT));
+	saveJsonWithComment($pending_file, $pending);
 
-	$subscribers = file_exists($subscribers_file) ? file($subscribers_file, FILE_IGNORE_NEW_LINES) : [];
-	if (!in_array($email, $subscribers)) {
-		$subscribers[] = $email;
-		file_put_contents($subscribers_file, implode("\n", $subscribers) . "\n");
-	}
-	return true;
+	$subscribers = loadJsonWithComment($subscribers_file);
+	$subscribers[$email] = true;
+	return saveJsonWithComment($subscribers_file, $subscribers);
 }
 
 /**
@@ -134,9 +131,12 @@ function verifySubscription( string $email, string $code ): bool {
  */
 function unsubscribeEmail( string $email ): bool {
 	$subscribers_file = __DIR__ . '/subscribers.txt';
-	$subscribers = file_exists($subscribers_file) ? file($subscribers_file, FILE_IGNORE_NEW_LINES) : [];
-	$subscribers = array_filter($subscribers, fn($e) => trim($e) !== trim($email));
-	return file_put_contents($subscribers_file, implode("\n", $subscribers) . "\n") !== false;
+	$subscribers = loadJsonWithComment($subscribers_file);
+	if (isset($subscribers[$email])) {
+		unset($subscribers[$email]);
+		return saveJsonWithComment($subscribers_file, $subscribers);
+	}
+	return false;
 }
 
 /**
@@ -145,10 +145,10 @@ function unsubscribeEmail( string $email ): bool {
  */
 function sendTaskReminders(): void {
 	$subscribers_file = __DIR__ . '/subscribers.txt';
-	$emails = file_exists($subscribers_file) ? file($subscribers_file, FILE_IGNORE_NEW_LINES) : [];
+	$subscribers = loadJsonWithComment($subscribers_file);
 	$tasks = getAllTasks();
 	$pending = array_filter($tasks, fn($task) => !$task['completed']);
-	foreach ($emails as $email) {
+	foreach (array_keys($subscribers) as $email) {
 		sendTaskEmail($email, $pending);
 	}
 }
@@ -170,11 +170,23 @@ function sendTaskEmail( string $email, array $pending_tasks ): bool {
 	$body = "<h2>Pending Tasks Reminder</h2>
 <p>Here are the current pending tasks:</p>
 <ul>$list</ul>
-<p><a id=\"unsubscribe-link\" href=\"$unsubscribe_link\">Unsubscribe from notifications</a></p>";
-
-	$headers = "MIME-Version: 1.0\r\n";
-	$headers .= "Content-type:text/html;charset=UTF-8\r\n";
-	$headers .= "From: no-reply@example.com";
+<p><a id='unsubscribe-link' href='$unsubscribe_link'>Unsubscribe from notifications</a></p>";
+	$headers = "MIME-Version: 1.0\r\nContent-type:text/html;charset=UTF-8\r\nFrom: no-reply@example.com";
 
 	return mail($email, $subject, $body, $headers);
+}
+
+// JSON read/write helpers
+function loadJsonWithComment(string $file): array {
+	if (!file_exists($file)) return [];
+	$lines = file($file, FILE_IGNORE_NEW_LINES);
+	unset($lines[0]); // skip comment
+	$json = implode("\n", $lines);
+	return json_decode($json, true) ?? [];
+}
+
+function saveJsonWithComment(string $file, array $data): bool {
+	$comment = "// Store the data in JSON format.";
+	$json = json_encode($data, JSON_PRETTY_PRINT);
+	return file_put_contents($file, $comment . "\n" . $json) !== false;
 }

@@ -3,9 +3,9 @@ require_once 'functions.php';
 
 // TODO: Implement the unsubscription logic.
 
-$success = false;
+$unsubscribed = false;
 if (isset($_GET['email'])) {
-	$success = unsubscribeEmail($_GET['email']);
+	$unsubscribed = unsubscribeEmail($_GET['email']);
 }
 ?>
 
@@ -15,7 +15,11 @@ if (isset($_GET['email'])) {
 	<!-- Implement Header ! -->
 </head>
 <body>
+	<!-- Do not modify the ID of the heading -->
 	<h2 id="unsubscription-heading">Unsubscribe from Task Updates</h2>
-	<p><?= $success ? "You have been unsubscribed successfully." : "Unsubscription failed or email not found." ?></p>
+	<!-- Implemention body -->
+	<p>
+		<?= $unsubscribed ? "✅ You have been unsubscribed successfully." : "❌ Unsubscription failed." ?>
+	</p>
 </body>
 </html>
